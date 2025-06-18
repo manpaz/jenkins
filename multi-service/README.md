@@ -27,8 +27,8 @@ where:
 
 Each `Dockerfile` within the modules includes:
 ```
-ARG	    BASE_IMAGE_FROM=<env_var_passed_as_argument>
-FROM	$BASE_IMAGE_FROM:latest as build
+ARG     BASE_IMAGE_FROM=<env_var_passed_as_argument>
+FROM    $BASE_IMAGE_FROM:latest as build
 ```
 
 ## Jenkinsfiles
