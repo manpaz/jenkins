@@ -1,0 +1,69 @@
+pipeline {
+  agent any
+
+  environment {
+    dockerImage = ""
+    imageName = "${ORG}-${JOB_BASE_NAME}-${PRJ_ENV}"
+    registryCredentials = "ecr:${AWS_REGION}:aws-${PRJ_ENV}"
+  }
+
+  // ==========================================================================
+  stages {
+
+    // ------------------------------------------
+    stage("Build") {
+      steps {
+        script {
+          dockerImage = docker.build(imageName, "--build-arg BUILD_ENV=${PRJ_ENV} .")
+        }
+      }
+    }
+  }
+
+  // ==========================================================================
+  post {
+
+    // ------------------------------------------
+    success {
+      slackSend (
+        color: "good",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' succeeded. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+    // ------------------------------------------
+    failure {
+      script {
+        if (currentBuild.currentResult == "FAILURE") {
+          emailext (
+            body: "\${DEFAULT_CONTENT}",
+            to: "\${DEFAULT_RECIPIENTS}",
+            subject: "\${DEFAULT_SUBJECT}"
+          )
+        }
+      }
+      slackSend (
+        color: "danger",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' failed. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+    // ------------------------------------------
+    unstable {
+      slackSend (
+        color: "warning",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' is unstable. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+    // ------------------------------------------
+    aborted {
+      slackSend (
+        color: "#cccccc",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' was aborted. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+  }
+}
+

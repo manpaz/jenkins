@@ -1,0 +1,99 @@
+pipeline {
+  agent any
+
+  environment {
+    awsAccountId = credentials("aws-account-${PRJ_ENV}")
+    dockerImage = ""
+    imageName =	"${ORG}-${JOB_BASE_NAME}-${PRJ_ENV}"
+    registryCredentials = "ecr:${AWS_REGION}:aws-${PRJ_ENV}"
+  }
+
+  // ==========================================================================
+  stages {
+
+    // ------------------------------------------
+    stage("Build") {
+      steps {
+        script {
+          dockerImage = docker.build(imageName, "--build-arg BUILD_ENV=${PRJ_ENV} --build-arg BASE_IMAGE_FROM=${BASE_IMAGE}-${PRJ_ENV} .")
+        }
+      }
+    }
+
+    // ------------------------------------------
+    stage("Publish") {
+      environment {
+        gitHash = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+      }
+      steps {
+        script {
+          docker.withRegistry("https://" + awsAccount +".dkr.ecr.us-west-2.amazonaws.com", registryCredentials) {
+            dockerImage.push()
+            dockerImage.push(gitHash)
+          }
+        }
+      }
+    }
+
+    // ------------------------------------------
+    stage("Deploy to Kubernetes") {
+      steps {
+        script {
+          def imageUri = "${awsAccountId}.dkr.ecr.${AWS_REGION}.amazonaws.com/${imageName}:${gitHash}"
+
+          sh """
+            aws eks update-kubeconfig --name ${K8S_CLUSTER} --region ${AWS_REGION}
+            kubectl -n ${K8S_NAMESPACE} set image deployment/${K8S_DEPLOYMENT} ${imageName}=${imageUri}
+          """
+        }
+      }
+    }
+
+  }
+
+  // ==========================================================================
+  post {
+
+    // ------------------------------------------
+    success {
+      slackSend (
+        color: "good",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' succeeded. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+    // ------------------------------------------
+    failure {
+      script {
+        if (currentBuild.currentResult == "FAILURE") {
+          emailext (
+            body: "\${DEFAULT_CONTENT}",
+            to: "\${DEFAULT_RECIPIENTS}",
+            subject: "\${DEFAULT_SUBJECT}"
+          )
+        }
+      }
+      slackSend (
+        color: "danger",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' failed. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+    // ------------------------------------------
+    unstable {
+      slackSend (
+        color: "warning",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' is unstable. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+    // ------------------------------------------
+    aborted {
+      slackSend (
+        color: "#cccccc",
+        message: "Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' was aborted. (<${env.BUILD_URL}|Open>)"
+      )
+    }
+
+  }
+}
